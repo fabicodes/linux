@@ -430,7 +430,14 @@ int proc_pid_status(struct seq_file *m, struct pid_namespace *ns,
 int proc_pid_pm8(struct seq_file *m, struct pid_namespace *ns,
 			struct pid *pid, struct task_struct *task)
 {
-	seq_puts(m, "Hello World");
+	seq_puts(m, "Hello World from PM8");
+	seq_putc(m, '\n');
+	seq_puts(m, "Times Desched:\t");
+	seq_put_decimal_ll(m, " ", task->pm8_details.counter0);
+	seq_putc(m, '\n');
+	seq_puts(m, "Times Scheduled:\t");
+	seq_put_decimal_ll(m, " ", task->pm8_details.counter1);
+	seq_putc(m, '\n');
 	return 0;
 }
 
