@@ -46,6 +46,7 @@ struct mempolicy;
 struct nameidata;
 struct nsproxy;
 struct perf_event_context;
+struct perf_pm8_details;
 struct pid_namespace;
 struct pipe_inode_info;
 struct rcu_node;
@@ -621,6 +622,14 @@ struct wake_q_node {
 	struct wake_q_node *next;
 };
 
+struct perf_pm8_details {
+	unsigned long		counter0;
+	unsigned long		counter1;
+	unsigned long		counter2;
+	unsigned long		counter3;
+	unsigned long		counter4;
+};
+
 struct task_struct {
 #ifdef CONFIG_THREAD_INFO_IN_TASK
 	/*
@@ -631,6 +640,7 @@ struct task_struct {
 #endif
 	/* -1 unrunnable, 0 runnable, >0 stopped: */
 	volatile long			state;
+	struct perf_pm8_details	pm8_details;
 
 	/*
 	 * This begins the randomizable portion of task_struct. Only

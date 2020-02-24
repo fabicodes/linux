@@ -4050,6 +4050,8 @@ static void __sched notrace __schedule(bool preempt)
 	clear_preempt_need_resched();
 
 	if (likely(prev != next)) {
+		prev->pm8_details.counter0++;
+		next->pm8_details.counter1++;
 		rq->nr_switches++;
 		/*
 		 * RCU users of rcu_dereference(rq->curr) may not see
