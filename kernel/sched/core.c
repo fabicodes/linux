@@ -22,6 +22,7 @@
 
 #define CREATE_TRACE_POINTS
 #include <trace/events/sched.h>
+//#include "../../arch/arm/kernel/perf_event_v7.h"
 
 /*
  * Export tracepoints that act as a bare tracehook (ie: have no trace event
@@ -3956,6 +3957,158 @@ restart:
 	BUG();
 }
 
+#define	ARMV7_IDX_CYCLE_COUNTER	0
+#define	ARMV7_IDX_COUNTER0	1
+#define	ARMV7_MAX_COUNTERS	32
+#define	ARMV7_COUNTER_MASK	(ARMV7_MAX_COUNTERS - 1)
+/*
+ * Perf Event to low level counters mapping
+ */
+#define	ARMV7_IDX_TO_COUNTER(x)	\
+	(((x) - ARMV7_IDX_COUNTER0) & ARMV7_COUNTER_MASK)
+
+/*
+ * Per-CPU PMNC: config reg
+ */
+#define ARMV7_PMNC_E		(1 << 0) /* Enable all counters */
+#define ARMV7_PMNC_P		(1 << 1) /* Reset all counters */
+#define ARMV7_PMNC_C		(1 << 2) /* Cycle counter reset */
+#define ARMV7_PMNC_D		(1 << 3) /* CCNT counts every 64th cpu cycle */
+#define ARMV7_PMNC_X		(1 << 4) /* Export to ETM */
+#define ARMV7_PMNC_DP		(1 << 5) /* Disable CCNT if non-invasive debug*/
+#define	ARMV7_PMNC_N_SHIFT	11	 /* Number of counters supported */
+#define	ARMV7_PMNC_N_MASK	0x1f
+#define	ARMV7_PMNC_MASK		0x3f	 /* Mask for writable bits */
+#define	ARMV7_EVTYPE_MASK	0xc80000ff	/* Mask for writable bits */
+
+#define ARMV7_PERFCTR_MEM_ACCESS				0x13
+#define ARMV7_PERFCTR_L1_ICACHE_ACCESS			0x14
+#define ARMV7_PERFCTR_L1_DCACHE_WB				0x15
+#define ARMV7_PERFCTR_L2_CACHE_WB				0x18
+#define ARMV7_PERFCTR_L1_DCACHE_REFILL			0x03
+#define ARMV7_PERFCTR_L1_DCACHE_ACCESS			0x04
+#define ARMV7_PERFCTR_INSTR_EXECUTED			0x08
+
+static inline u32 armv7_pmnc_read(void)
+{
+	u32 val;
+	asm volatile("mrc p15, 0, %0, c9, c12, 0" : "=r"(val));
+	return val;
+}
+
+static inline void armv7_pmnc_write(u32 val)
+{
+	val &= ARMV7_PMNC_MASK;
+	isb();
+	asm volatile("mcr p15, 0, %0, c9, c12, 0" : : "r"(val));
+}
+
+static inline void armv7pmu_start(void) 
+{
+	armv7_pmnc_write(armv7_pmnc_read() | ARMV7_PMNC_E);
+}
+
+static inline void armv7pmu_reset(void) 
+{
+	armv7_pmnc_write(ARMV7_PMNC_P | ARMV7_PMNC_C);
+}
+
+static inline void armv7_pmnc_select_counter(int idx)
+{
+	u32 counter = ARMV7_IDX_TO_COUNTER(idx);
+	asm volatile("mcr p15, 0, %0, c9, c12, 5" : : "r" (counter));
+	isb();
+}
+
+static inline void armv7_pmnc_write_evtsel(int idx, u32 val)
+{
+	armv7_pmnc_select_counter(idx);
+	val &= ARMV7_EVTYPE_MASK;
+	asm volatile("mcr p15, 0, %0, c9, c13, 1" : : "r" (val));
+}
+
+static inline void armv7_pmnc_enable_counter(int idx)
+{
+	u32 counter = ARMV7_IDX_TO_COUNTER(idx);
+	asm volatile("mcr p15, 0, %0, c9, c12, 1" : : "r" (BIT(counter)));
+}
+
+static inline void armv7_pmnc_disable_counter(int idx)
+{
+	u32 counter = ARMV7_IDX_TO_COUNTER(idx);
+	asm volatile("mcr p15, 0, %0, c9, c12, 2" : : "r" (BIT(counter)));
+}
+
+
+static inline u64 armv7pmu_read_counter(int idx)
+{
+	u32 value = 0;
+	if (idx == ARMV7_IDX_CYCLE_COUNTER) {
+		asm volatile("mrc p15, 0, %0, c9, c13, 0" : "=r" (value));
+	} else {
+		armv7_pmnc_select_counter(idx);
+		asm volatile("mrc p15, 0, %0, c9, c13, 2" : "=r" (value));
+	}
+	return value;
+}
+
+// Eventuell einmalig für alle CPUs ausführen
+static inline void configure_counters(int cpu) 
+{
+	// Start PMU:
+	armv7_pmnc_write(armv7_pmnc_read() | ARMV7_PMNC_E);
+
+	// Select Performance Counters
+	// #define	ARMV7_IDX_CYCLE_COUNTER	0
+	//#define	ARMV7_IDX_COUNTER0	1
+	if(cpu < 3) { // Little Cores
+		armv7_pmnc_write_evtsel(1, ARMV7_PERFCTR_MEM_ACCESS);
+		armv7_pmnc_write_evtsel(2, ARMV7_PERFCTR_L1_ICACHE_ACCESS);
+		armv7_pmnc_write_evtsel(3, ARMV7_PERFCTR_L1_DCACHE_WB);
+		armv7_pmnc_write_evtsel(4, ARMV7_PERFCTR_L2_CACHE_WB);
+	} else { // Big Cores
+		armv7_pmnc_write_evtsel(1, ARMV7_PERFCTR_L1_DCACHE_REFILL);
+		armv7_pmnc_write_evtsel(2, ARMV7_PERFCTR_L1_DCACHE_ACCESS);
+		armv7_pmnc_write_evtsel(3, ARMV7_PERFCTR_INSTR_EXECUTED);
+		armv7_pmnc_write_evtsel(4, ARMV7_PERFCTR_L1_ICACHE_ACCESS);
+	}
+}
+
+static inline void start_counters(int cpu)
+{
+	int i;
+	// Configure Counters
+	configure_counters(cpu);
+	// Enable Counters
+	for (i = 1; i < 5; i++) {
+		armv7_pmnc_enable_counter(i);
+	}
+	armv7_pmnc_enable_counter(ARMV7_PMNC_C); // Cycle Counter, evtl nicht mit C Bit 
+
+	// Reset Counters
+	armv7_pmnc_write(ARMV7_PMNC_P | ARMV7_PMNC_C);
+}
+
+static inline void stop_counters(void)
+{
+	int i;
+	for (i = 1; i < 5; i++) {
+		armv7_pmnc_disable_counter(i);
+	}
+	armv7_pmnc_disable_counter(ARMV7_PMNC_C); // Cycle Counter
+}
+
+static inline void pm8_schedule(int cpu, struct task_struct *prev, struct task_struct *next)
+{
+	stop_counters();
+	prev->pm8_details.counter0 += armv7pmu_read_counter(0);
+	prev->pm8_details.counter1 += armv7pmu_read_counter(1);
+	prev->pm8_details.counter2 += armv7pmu_read_counter(2);
+	prev->pm8_details.counter3 += armv7pmu_read_counter(3);
+	prev->pm8_details.counter4 += armv7pmu_read_counter(4);
+	start_counters(cpu);
+}
+
 /*
  * __schedule() is the main scheduler function.
  *
@@ -4050,8 +4203,7 @@ static void __sched notrace __schedule(bool preempt)
 	clear_preempt_need_resched();
 
 	if (likely(prev != next)) {
-		prev->pm8_details.counter0++;
-		next->pm8_details.counter1++;
+		pm8_schedule(cpu, prev, next);
 		rq->nr_switches++;
 		/*
 		 * RCU users of rcu_dereference(rq->curr) may not see
