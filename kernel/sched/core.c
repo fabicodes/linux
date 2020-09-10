@@ -4049,12 +4049,14 @@ static inline u64 armv7pmu_read_counter(int idx)
 		armv7_pmnc_select_counter(idx);
 		asm volatile("mrc p15, 0, %0, c9, c13, 2" : "=r" (value));
 	}
+	printk(KERN_ALERT "Reading Counter %d: %d\n",idx,value);
 	return value;
 }
 
 // Eventuell einmalig für alle CPUs ausführen
 static inline void configure_counters(int cpu) 
 {
+	printk(KERN_ALERT "Configuring Counters, CPU Num: %d\n",cpu);
 	// Start PMU:
 	armv7_pmnc_write(armv7_pmnc_read() | ARMV7_PMNC_E);
 
@@ -4083,7 +4085,7 @@ static inline void start_counters(int cpu)
 	for (i = 1; i < 5; i++) {
 		armv7_pmnc_enable_counter(i);
 	}
-	armv7_pmnc_enable_counter(ARMV7_PMNC_C); // Cycle Counter, evtl nicht mit C Bit 
+	armv7_pmnc_enable_counter(ARMV7_IDX_CYCLE_COUNTER); // Cycle Counter, evtl nicht mit C Bit 
 
 	// Reset Counters
 	armv7_pmnc_write(ARMV7_PMNC_P | ARMV7_PMNC_C);
@@ -4095,7 +4097,7 @@ static inline void stop_counters(void)
 	for (i = 1; i < 5; i++) {
 		armv7_pmnc_disable_counter(i);
 	}
-	armv7_pmnc_disable_counter(ARMV7_PMNC_C); // Cycle Counter
+	armv7_pmnc_disable_counter(ARMV7_IDX_CYCLE_COUNTER); // Cycle Counter
 }
 
 static inline void pm8_schedule(int cpu, struct task_struct *prev, struct task_struct *next)

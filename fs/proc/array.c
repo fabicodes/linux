@@ -432,11 +432,20 @@ int proc_pid_pm8(struct seq_file *m, struct pid_namespace *ns,
 {
 	seq_puts(m, "Hello World from PM8");
 	seq_putc(m, '\n');
-	seq_puts(m, "Times Desched:\t");
+	seq_puts(m, "Counter 0:\t");
 	seq_put_decimal_ll(m, " ", task->pm8_details.counter0);
 	seq_putc(m, '\n');
-	seq_puts(m, "Times Scheduled:\t");
+	seq_puts(m, "Counter 1:\t");
 	seq_put_decimal_ll(m, " ", task->pm8_details.counter1);
+	seq_putc(m, '\n');
+	seq_puts(m, "Counter 2:\t");
+	seq_put_decimal_ll(m, " ", task->pm8_details.counter0);
+	seq_putc(m, '\n');
+	seq_puts(m, "Counter 3:\t");
+	seq_put_decimal_ll(m, " ", task->pm8_details.counter1);
+	seq_putc(m, '\n');
+	seq_puts(m, "Counter 4:\t");
+	seq_put_decimal_ll(m, " ", task->pm8_details.counter0);
 	seq_putc(m, '\n');
 	return 0;
 }
