@@ -623,11 +623,8 @@ struct wake_q_node {
 };
 
 struct perf_pm8_details {
-	unsigned long		counter0;
-	unsigned long		counter1;
-	unsigned long		counter2;
-	unsigned long		counter3;
-	unsigned long		counter4;
+	u64 completeArray[10];
+	u64 pJ[2];
 };
 
 struct task_struct {

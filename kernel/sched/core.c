@@ -3989,6 +3989,10 @@ restart:
 #define ARMV7_PERFCTR_L1_DCACHE_ACCESS			0x04
 #define ARMV7_PERFCTR_INSTR_EXECUTED			0x08
 
+u64 littleModelLookupTable[] = {1023, 1048, 123, 18654, 31591};
+u64 bigModelLookupTable[] = {4191, 131386, 5610, 1199, 966};
+u64 modelLookupTable[] = {1023, 1048, 123, 18654, 31591, 4191, 131386, 5610, 1199, 966};
+
 static inline u32 armv7_pmnc_read(void)
 {
 	u32 val;
@@ -4003,19 +4007,19 @@ static inline void armv7_pmnc_write(u32 val)
 	asm volatile("mcr p15, 0, %0, c9, c12, 0" : : "r"(val));
 }
 
-static inline void armv7pmu_start(void) 
+static inline void armv7pmu_start(void) // manually validated
 {
 	armv7_pmnc_write(armv7_pmnc_read() | ARMV7_PMNC_E);
 }
 
-static inline void armv7pmu_reset(void) 
+static inline void armv7pmu_reset(void)  // manually validated, resets counters and ccnt
 {
-	armv7_pmnc_write(ARMV7_PMNC_P | ARMV7_PMNC_C);
+	armv7_pmnc_write(armv7_pmnc_read() | ARMV7_PMNC_P | ARMV7_PMNC_C);
 }
 
-static inline void armv7_pmnc_select_counter(int idx)
+static inline void armv7_pmnc_select_counter(int idx) // probably makes problems at selecting ccnt
 {
-	u32 counter = ARMV7_IDX_TO_COUNTER(idx);
+	u32 counter = ARMV7_IDX_TO_COUNTER(idx); // idx = 0 => 31 idx =32 => 31
 	asm volatile("mcr p15, 0, %0, c9, c12, 5" : : "r" (counter));
 	isb();
 }
@@ -4024,19 +4028,21 @@ static inline void armv7_pmnc_write_evtsel(int idx, u32 val)
 {
 	armv7_pmnc_select_counter(idx);
 	val &= ARMV7_EVTYPE_MASK;
+	//printk_ratelimited(KERN_ALERT "armv7_pmnc_write_evtsel(%d, %d), cnt=0x%x val=0x%x\n",idx, val, ARMV7_IDX_TO_COUNTER(idx) ,val);
 	asm volatile("mcr p15, 0, %0, c9, c13, 1" : : "r" (val));
+	isb();
 }
 
-static inline void armv7_pmnc_enable_counter(int idx)
+static inline void armv7_pmnc_enable_counters(void)
 {
-	u32 counter = ARMV7_IDX_TO_COUNTER(idx);
-	asm volatile("mcr p15, 0, %0, c9, c12, 1" : : "r" (BIT(counter)));
+	asm volatile("mcr p15, 0, %0, c9, c12, 1" : : "r" (0x8000000f));
+	isb();
 }
 
-static inline void armv7_pmnc_disable_counter(int idx)
+static inline void armv7_pmnc_disable_counters(void)
 {
-	u32 counter = ARMV7_IDX_TO_COUNTER(idx);
-	asm volatile("mcr p15, 0, %0, c9, c12, 2" : : "r" (BIT(counter)));
+	asm volatile("mcr p15, 0, %0, c9, c12, 2" : : "r" (0x8000000f));
+	isb();
 }
 
 
@@ -4045,25 +4051,25 @@ static inline u64 armv7pmu_read_counter(int idx)
 	u32 value = 0;
 	if (idx == ARMV7_IDX_CYCLE_COUNTER) {
 		asm volatile("mrc p15, 0, %0, c9, c13, 0" : "=r" (value));
+		//printk_ratelimited(KERN_ALERT "Reading CCounter %d: %d\n",idx,value);
 	} else {
 		armv7_pmnc_select_counter(idx);
 		asm volatile("mrc p15, 0, %0, c9, c13, 2" : "=r" (value));
+		//printk_ratelimited(KERN_ALERT "Reading Counter %d: %d\n",idx,value);
 	}
-	printk(KERN_ALERT "Reading Counter %d: %d\n",idx,value);
 	return value;
 }
 
 // Eventuell einmalig für alle CPUs ausführen
 static inline void configure_counters(int cpu) 
 {
-	printk(KERN_ALERT "Configuring Counters, CPU Num: %d\n",cpu);
-	// Start PMU:
-	armv7_pmnc_write(armv7_pmnc_read() | ARMV7_PMNC_E);
+	// V works
+	//printk(KERN_ALERT "Configuring Counters, CPU Num: %d\n",cpu);
 
 	// Select Performance Counters
 	// #define	ARMV7_IDX_CYCLE_COUNTER	0
-	//#define	ARMV7_IDX_COUNTER0	1
-	if(cpu < 3) { // Little Cores
+	// #define	ARMV7_IDX_COUNTER0	1
+	if(cpu < 4) { // Little Cores
 		armv7_pmnc_write_evtsel(1, ARMV7_PERFCTR_MEM_ACCESS);
 		armv7_pmnc_write_evtsel(2, ARMV7_PERFCTR_L1_ICACHE_ACCESS);
 		armv7_pmnc_write_evtsel(3, ARMV7_PERFCTR_L1_DCACHE_WB);
@@ -4078,36 +4084,36 @@ static inline void configure_counters(int cpu)
 
 static inline void start_counters(int cpu)
 {
-	int i;
+	// Start PMU:
+	armv7pmu_start();
 	// Configure Counters
 	configure_counters(cpu);
 	// Enable Counters
-	for (i = 1; i < 5; i++) {
-		armv7_pmnc_enable_counter(i);
-	}
-	armv7_pmnc_enable_counter(ARMV7_IDX_CYCLE_COUNTER); // Cycle Counter, evtl nicht mit C Bit 
-
+	armv7_pmnc_enable_counters();
 	// Reset Counters
-	armv7_pmnc_write(ARMV7_PMNC_P | ARMV7_PMNC_C);
+	armv7pmu_reset();
 }
 
-static inline void stop_counters(void)
-{
-	int i;
-	for (i = 1; i < 5; i++) {
-		armv7_pmnc_disable_counter(i);
-	}
-	armv7_pmnc_disable_counter(ARMV7_IDX_CYCLE_COUNTER); // Cycle Counter
+static inline unsigned long magic(unsigned long cycles, unsigned long value) {
+	// Watt = Joule / Second
+	//printk_ratelimited(KERN_ALERT "CPS: %d", sysconf(_SC_CLK_TCK)); // get cycles per clock
+	//unsigned long tick = USEC_PER_SEC/sysconf(_SC_CLK_TCK);
+	return 0;
 }
 
 static inline void pm8_schedule(int cpu, struct task_struct *prev, struct task_struct *next)
 {
-	stop_counters();
-	prev->pm8_details.counter0 += armv7pmu_read_counter(0);
-	prev->pm8_details.counter1 += armv7pmu_read_counter(1);
-	prev->pm8_details.counter2 += armv7pmu_read_counter(2);
-	prev->pm8_details.counter3 += armv7pmu_read_counter(3);
-	prev->pm8_details.counter4 += armv7pmu_read_counter(4);
+	int i,c;
+	u64 tmp;
+	armv7_pmnc_disable_counters();
+	magic(0,0);
+	c = (5 * (cpu / 4));
+		for(i=0; i < 5; i++) {
+			tmp = armv7pmu_read_counter(i);
+			prev->pm8_details.completeArray[i + c] += tmp;
+			prev->pm8_details.pJ[cpu / 4] += (tmp * modelLookupTable[i + c]);
+			printk_ratelimited(KERN_ALERT "\nRead:\t%llu\nc-Val:\t%d\ni-Val:\t%d\ncA[%d]:\t%llu\npJ[%d]:\t%llu\nModel[%d]:\t%llu", tmp, c, i, (i+c), prev->pm8_details.completeArray[i + c], c, prev->pm8_details.pJ[c], (i+c), modelLookupTable[i + c]);
+		} 
 	start_counters(cpu);
 }
 
