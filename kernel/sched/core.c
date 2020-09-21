@@ -4094,25 +4094,17 @@ static inline void start_counters(int cpu)
 	armv7pmu_reset();
 }
 
-static inline unsigned long magic(unsigned long cycles, unsigned long value) {
-	// Watt = Joule / Second
-	//printk_ratelimited(KERN_ALERT "CPS: %d", sysconf(_SC_CLK_TCK)); // get cycles per clock
-	//unsigned long tick = USEC_PER_SEC/sysconf(_SC_CLK_TCK);
-	return 0;
-}
-
 static inline void pm8_schedule(int cpu, struct task_struct *prev, struct task_struct *next)
 {
 	int i,c;
 	u64 tmp;
 	armv7_pmnc_disable_counters();
-	magic(0,0);
 	c = (5 * (cpu / 4));
 		for(i=0; i < 5; i++) {
 			tmp = armv7pmu_read_counter(i);
 			prev->pm8_details.completeArray[i + c] += tmp;
 			prev->pm8_details.pJ[cpu / 4] += (tmp * modelLookupTable[i + c]);
-			printk_ratelimited(KERN_ALERT "\nRead:\t%llu\nc-Val:\t%d\ni-Val:\t%d\ncA[%d]:\t%llu\npJ[%d]:\t%llu\nModel[%d]:\t%llu", tmp, c, i, (i+c), prev->pm8_details.completeArray[i + c], c, prev->pm8_details.pJ[c], (i+c), modelLookupTable[i + c]);
+			printk_ratelimited(KERN_ALERT "\nRead:\t%llu\nc-Val:\t%d\ni-Val:\t%d\ncA[%d]:\t%llu\npJ[%d]:\t%llu\nMdl[%d]:\t%llu", tmp, c, i, (i+c), prev->pm8_details.completeArray[i + c], c, prev->pm8_details.pJ[c], (i+c), modelLookupTable[i + c]);
 		} 
 	start_counters(cpu);
 }

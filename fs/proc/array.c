@@ -430,7 +430,8 @@ int proc_pid_status(struct seq_file *m, struct pid_namespace *ns,
 int proc_pid_pm8(struct seq_file *m, struct pid_namespace *ns,
 			struct pid *pid, struct task_struct *task)
 {
-	seq_puts(m, "CYCLES:\t");
+	seq_puts(m, "----------------ARM A7----------------\n");
+	seq_puts(m, "CYCLES:\t\t\t\t");
 	seq_put_decimal_ll(m, " ", task->pm8_details.completeArray[0]);
 	seq_putc(m, '\n');
 	seq_puts(m, "ARMV7_PERFCTR_MEM_ACCESS:\t");
@@ -445,7 +446,8 @@ int proc_pid_pm8(struct seq_file *m, struct pid_namespace *ns,
 	seq_puts(m, "ARMV7_PERFCTR_L2_CACHE_WB:\t");
 	seq_put_decimal_ll(m, " ", task->pm8_details.completeArray[4]);
 	seq_putc(m, '\n');
-	seq_puts(m, "CYCLES:\t");
+	seq_puts(m, "----------------ARM A15---------------\n");
+	seq_puts(m, "CYCLES:\t\t\t\t");
 	seq_put_decimal_ll(m, " ", task->pm8_details.completeArray[5]);
 	seq_putc(m, '\n');
 	seq_puts(m, "ARMV7_PERFCTR_L1_DCACHE_REFILL:\t");
@@ -460,10 +462,11 @@ int proc_pid_pm8(struct seq_file *m, struct pid_namespace *ns,
 	seq_puts(m, "ARMV7_PERFCTR_L1_ICACHE_ACCESS:\t");
 	seq_put_decimal_ll(m, " ", task->pm8_details.completeArray[9]);
 	seq_putc(m, '\n');
-	seq_puts(m, "pJl:\t");
+	seq_puts(m, "----------------ENERGY----------------\n");
+	seq_puts(m, "pJ on A7:\t\t\t");
 	seq_put_decimal_ll(m, " ", task->pm8_details.pJ[0]);
 	seq_putc(m, '\n');
-	seq_puts(m, "pJb:\t");
+	seq_puts(m, "pJ on A15:\t\t\t");
 	seq_put_decimal_ll(m, " ", task->pm8_details.pJ[1]);
 	seq_putc(m, '\n');
 	return 0;
