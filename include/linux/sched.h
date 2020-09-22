@@ -623,7 +623,7 @@ struct wake_q_node {
 };
 
 struct perf_pm8_details {
-	u64 completeArray[10];
+	u64 counter_values[10];
 	u64 pJ[2];
 };
 
