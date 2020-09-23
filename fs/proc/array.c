@@ -427,6 +427,54 @@ int proc_pid_status(struct seq_file *m, struct pid_namespace *ns,
 	return 0;
 }
 
+int proc_pid_pm8(struct seq_file *m, struct pid_namespace *ns,
+			struct pid *pid, struct task_struct *task)
+{
+	seq_puts(m, "----------------ARM A7 EVENTS---------\n");
+	seq_puts(m, "CYCLES:\t\t\t\t");
+	seq_put_decimal_ll(m, " ", task->pm8_details.counter_values[0]);
+	seq_putc(m, '\n');
+	seq_puts(m, "ARMV7_PERFCTR_MEM_ACCESS:\t");
+	seq_put_decimal_ll(m, " ", task->pm8_details.counter_values[1]);
+	seq_putc(m, '\n');
+	seq_puts(m, "ARMV7_PERFCTR_L1_ICACHE_ACCESS:\t");
+	seq_put_decimal_ll(m, " ", task->pm8_details.counter_values[2]);
+	seq_putc(m, '\n');
+	seq_puts(m, "ARMV7_PERFCTR_L1_DCACHE_WB:\t");
+	seq_put_decimal_ll(m, " ", task->pm8_details.counter_values[3]);
+	seq_putc(m, '\n');
+	seq_puts(m, "ARMV7_PERFCTR_L2_CACHE_WB:\t");
+	seq_put_decimal_ll(m, " ", task->pm8_details.counter_values[4]);
+	seq_putc(m, '\n');
+	seq_puts(m, "----------------ARM A15 EVENTS--------\n");
+	seq_puts(m, "CYCLES:\t\t\t\t");
+	seq_put_decimal_ll(m, " ", task->pm8_details.counter_values[5]);
+	seq_putc(m, '\n');
+	seq_puts(m, "ARMV7_PERFCTR_L1_DCACHE_REFILL:\t");
+	seq_put_decimal_ll(m, " ", task->pm8_details.counter_values[6]);
+	seq_putc(m, '\n');
+	seq_puts(m, "ARMV7_PERFCTR_L1_DCACHE_ACCESS:\t");
+	seq_put_decimal_ll(m, " ", task->pm8_details.counter_values[7]);
+	seq_putc(m, '\n');
+	seq_puts(m, "ARMV7_PERFCTR_INSTR_EXECUTED:\t");
+	seq_put_decimal_ll(m, " ", task->pm8_details.counter_values[8]);
+	seq_putc(m, '\n');
+	seq_puts(m, "ARMV7_PERFCTR_L1_ICACHE_ACCESS:\t");
+	seq_put_decimal_ll(m, " ", task->pm8_details.counter_values[9]);
+	seq_putc(m, '\n');
+	seq_puts(m, "----------------ENERGY----------------\n");
+	seq_puts(m, "On A7 [pJ]:\t\t\t");
+	seq_put_decimal_ll(m, " ", task->pm8_details.pJ[0]);
+	seq_putc(m, '\n');
+	seq_puts(m, "On A15 [pJ]:\t\t\t");
+	seq_put_decimal_ll(m, " ", task->pm8_details.pJ[1]);
+	seq_putc(m, '\n');
+	seq_puts(m, "Total [pJ]:\t\t\t");
+	seq_put_decimal_ll(m, " ", task->pm8_details.pJ[0] + task->pm8_details.pJ[1]);
+	seq_putc(m, '\n');
+	return 0;
+}
+
 static int do_task_stat(struct seq_file *m, struct pid_namespace *ns,
 			struct pid *pid, struct task_struct *task, int whole)
 {

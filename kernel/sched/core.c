@@ -22,6 +22,7 @@
 
 #define CREATE_TRACE_POINTS
 #include <trace/events/sched.h>
+#include "../../arch/arm/kernel/perf_event_v7.h"
 
 /*
  * Export tracepoints that act as a bare tracehook (ie: have no trace event
@@ -3957,6 +3958,143 @@ restart:
 }
 
 /*
+# Modell von Mathias
+## Little Core
+| PMU NUM | PMU CODE                  | Weight [pJ] |
+|---------|---------------------------------|-------|
+| 0x13    | ARMV7_PERFCTR_MEM_ACCESS        |  1048 |
+| 0x14    | ARMV7_PERFCTR_L1_ICACHE_ACCESS  |   123 |
+| 0x15    | ARMV7_PERFCTR_L1_DCACHE_WB      | 18654 |
+| 0x18    | ARMV7_PERFCTR_L2_CACHE_WB       | 31591 |
+| -       | CYCLES                          |  1023 |
+
+## Big Core
+| PMU NUM | PMU CODE                   | Weight [pJ] |
+|---------|---------------------------------|--------|
+| 0x03    | ARMV7_PERFCTR_L1_DCACHE_REFILL  | 131386 |
+| 0x04    | ARMV7_PERFCTR_L1_DCACHE_ACCESS  |   5610 |
+| 0x08    | ARMV7_PERFCTR_INSTR_EXECUTED    |   1199 |
+| 0x14    | ARMV7_PERFCTR_L1_ICACHE_ACCESS  |    966 |
+| -       | CYCLES                          |   4191 |
+
+## Statischer Verbrauch
+"Dazu kommen nochmal immer 401,2 mW für den Cluster der kleinen CPUs (statischer Verbrauch)
+und 1001mW für den Cluster der großen CPUs (sobald eine große CPU eingeschaltet ist).
+Wenn immer alle CPUs aktiv sind, kann das auch in die Kosten pro Zyklus eingerechnet werden.
+Alle Werte sind für die maximale Frequenz."
+*/
+
+u32 modelConfigTable[] = {	ARMV7_PERFCTR_MEM_ACCESS, ARMV7_PERFCTR_L1_ICACHE_ACCESS, // Little Cores
+							ARMV7_PERFCTR_L1_DCACHE_WB, ARMV7_PERFCTR_L2_CACHE_WB, // Little Cores
+							ARMV7_PERFCTR_L1_DCACHE_REFILL, ARMV7_PERFCTR_L1_DCACHE_ACCESS, // Big Cores 
+							ARMV7_PERFCTR_INSTR_EXECUTED, ARMV7_PERFCTR_L1_ICACHE_ACCESS }; // Big Cores
+u64 modelLookupTable[] = { 	1023, 1048, 123, 18654, 31591, // Little Cores (Cycle Counter Value prepended)
+							4191, 131386, 5610, 1199, 966 }; // Big Cores (Cycle Counter Value prepended)
+
+static inline void pmu_start(void) // new
+{
+	armv7_pmnc_write(armv7_pmnc_read() | ARMV7_PMNC_E);
+}
+
+static inline void configure_counters(int cpu) 
+{
+	int i, c;
+	c = (4 * (cpu / 4) - 1);
+	for (i = 1; i < 5; i++) {
+		armv7_pmnc_write_evtsel(i, modelConfigTable[i + c]);
+	}
+}
+
+/*
+Instead of enabling the counters one-by-one,
+as in armv7_pmnc_enable_counter at perf_event_v7.c,
+this one activates every counter in one step,
+same for the disable_counters method below
+*/
+static inline void enable_counters(void)
+{
+	asm volatile("mcr p15, 0, %0, c9, c12, 1" : : "r" (0x8000000f));
+	isb();
+}
+
+static inline void disable_counters(void)
+{
+	asm volatile("mcr p15, 0, %0, c9, c12, 2" : : "r" (0x8000000f));
+	isb();
+}
+
+/*
+The original armv7pmu_reset at perf_event_v7.c
+resets the whole pmu and also disables it,
+as it does not read the registervalues
+and OR's them with the specific PMU-Config-Bits
+*/
+static inline void pmu_reset(void)
+{
+	armv7_pmnc_write(armv7_pmnc_read() | ARMV7_PMNC_P | ARMV7_PMNC_C);
+}
+
+static inline u64 read_counter(int idx)
+{
+	u32 value = 0;
+	if (idx == ARMV7_IDX_CYCLE_COUNTER) {
+		asm volatile("mrc p15, 0, %0, c9, c13, 0" : "=r" (value));
+		//printk_ratelimited(KERN_ALERT "Reading CCounter %d: %d\n", idx, value);
+	} else {
+		armv7_pmnc_select_counter(idx);
+		asm volatile("mrc p15, 0, %0, c9, c13, 2" : "=r" (value));
+		//printk_ratelimited(KERN_ALERT "Reading Counter %d: %d\n", idx, value);
+	}
+	return value;
+}
+
+static inline void start_counters(int cpu)
+{
+	// Start PMU:
+	pmu_start();
+	// Configure Counters
+	configure_counters(cpu);
+	// Enable Counters
+	enable_counters();
+	// Reset Counters
+	pmu_reset();
+}
+
+static inline void pm8_schedule(int cpu, struct task_struct *prev)
+{
+	int i, c;
+	u64 tmp;
+	// c is an offset for the storage array
+	// Due to the Integer-Division by 4 every CPU < 4 will become 0, the other ones will become 5.
+	// So the Counter Values of CPU 0-3 (A7-Cores) will be mapped to Array Indices 0-4 and the Values of CPU 4-7 (A15-Cores) will be mapped to 5-9
+	c = (5 * (cpu / 4));
+
+	// Disable all Counters before reading them
+	disable_counters();
+
+	// Read all 5 Counters (4 Configurable + 1 Cycle Counter) in a for loop
+	for (i = 0; i < 5; i++) {
+		// Assign the countervalue to a temporary variable
+		tmp = read_counter(i);
+		// Add the perfcountervalue to the ones saved before
+		prev->pm8_details.counter_values[i + c] += tmp;
+		// Add the product of the perfcountervalue and its model to the specific CPU PicoJoule Measurement
+		prev->pm8_details.pJ[cpu / 4] += (tmp * modelLookupTable[i + c]);
+		printk_ratelimited(KERN_ALERT 	"\nRead:\t%llu\n"
+										"c-Val:\t%d\n"
+										"i-Val:\t%d\n"
+										"cA[%d]:\t%llu\n"
+										"pJ[%d]:\t%llu\n"
+										"Mdl[%d]:\t%llu",
+										tmp, c, i, (i+c), prev->pm8_details.counter_values[i + c],
+										c, prev->pm8_details.pJ[c], (i+c), modelLookupTable[i + c]);
+	}
+	
+	// Initialize and start the Counters for the new Process
+	start_counters(cpu);
+}
+
+/*
  * __schedule() is the main scheduler function.
  *
  * The main means of driving the scheduler and thus entering this function are:
@@ -4050,6 +4188,7 @@ static void __sched notrace __schedule(bool preempt)
 	clear_preempt_need_resched();
 
 	if (likely(prev != next)) {
+		pm8_schedule(cpu, prev);
 		rq->nr_switches++;
 		/*
 		 * RCU users of rcu_dereference(rq->curr) may not see
